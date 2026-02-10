@@ -1,0 +1,2 @@
+[console_scripts]
+css-scan = scanner.cli:main

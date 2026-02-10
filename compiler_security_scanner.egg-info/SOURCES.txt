@@ -1,0 +1,17 @@
+setup.py
+compiler_security_scanner.egg-info/PKG-INFO
+compiler_security_scanner.egg-info/SOURCES.txt
+compiler_security_scanner.egg-info/dependency_links.txt
+compiler_security_scanner.egg-info/entry_points.txt
+compiler_security_scanner.egg-info/requires.txt
+compiler_security_scanner.egg-info/top_level.txt
+detectors/__init__.py
+detectors/crypto_detector.py
+detectors/secret_detector.py
+scanner/__init__.py
+scanner/compiler_hooks.py
+scanner/ir_analyzer.py
+scanner/symbol_table.py
+tests/test_hooks.py
+tests/test_ir_analyzer.py
+utils/__init__.py

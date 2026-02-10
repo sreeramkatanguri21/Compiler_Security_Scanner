@@ -1,0 +1,31 @@
+security_rules:
+  hardcoded_secrets:
+    patterns:
+      - "password\\s*=\\s*['\"].{4,}['\"]"
+      - "api_key\\s*=\\s*['\"].{10,}['\"]"
+      - "secret\\s*=\\s*['\"].{8,}['\"]"
+      - "token\\s*=\\s*['\"].{10,}['\"]"
+      - "aws_access_key_id"
+      - "aws_secret_access_key"
+    
+  weak_crypto:
+    weak_algorithms:
+      - "md5"
+      - "sha1"
+      - "des"
+      - "rc4"
+    min_key_lengths:
+      rsa: 2048
+      aes: 128
+      ecdsa: 256
+    
+  insecure_random:
+    weak_rngs:
+      - "random.random"
+      - "Math.random"
+      - "rand()"
+      - "random.randint"
+    required_rngs:
+      - "secrets.token_bytes"
+      - "secrets.randbelow"
+      - "Crypto.Random.get_random_bytes"
