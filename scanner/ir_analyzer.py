@@ -29,6 +29,9 @@ class IRAnalyzer:
         self.symbol_table = SymbolTable()
         self.ir_root: Optional[IRNode] = None
         self.current_scope = "global"
+        self.constants: Dict[str, Any] = {}
+        self.crypto_findings: List[Dict] = []
+        self.random_findings: List[Dict] = []
         
     def build_ir_from_ast(self, ast_tree: ast.AST) -> IRNode:
         """Convert AST to Intermediate Representation"""
@@ -93,9 +96,18 @@ class IRAnalyzer:
                                        attributes={"name": target.id})
                     ir_node.children.append(target_node)
                     
+                    # Track constant values
+                    if isinstance(node.value, ast.Constant):
+                        self.constants[target.id] = node.value.value
+                    
                     # Add variable to symbol table
+                    value_str = None
+                    if isinstance(node.value, ast.Constant):
+                        value_str = str(node.value.value)
+                    
                     self.symbol_table.add_symbol(
-                        Symbol(target.id, "variable", target.lineno, self.current_scope)
+                        Symbol(target.id, "variable", target.lineno, 
+                              self.current_scope, value=value_str)
                     )
             
             # Process value being assigned
@@ -108,125 +120,264 @@ class IRAnalyzer:
             ir_node = IRNode("Constant", node.lineno, node.col_offset,
                            attributes={"value": node.value, "type": type(node.value).__name__})
             return ir_node
-            
+        
+        elif isinstance(node, ast.Name):
+            ir_node = IRNode("Name", node.lineno, node.col_offset,
+                           attributes={"id": node.id})
+            return ir_node
+        
         elif isinstance(node, ast.Call):
             ir_node = IRNode("Call", node.lineno, node.col_offset)
             
-            # Process function being called
-            func_node = self._visit_node(node.func)
-            ir_node.children.append(func_node)
+            # Check function name
+            func_name = None
+            if isinstance(node.func, ast.Name):
+                func_name = node.func.id
+            elif isinstance(node.func, ast.Attribute):
+                if isinstance(node.func.value, ast.Name):
+                    func_name = f"{node.func.value.id}.{node.func.attr}"
             
-            # Process arguments
-            args_node = IRNode("CallArgs", node.lineno, node.col_offset)
+            ir_node.attributes["func_name"] = func_name
+            
+            # Visit function node
+            ir_node.children.append(self._visit_node(node.func))
+            
+            # Visit arguments
             for arg in node.args:
-                args_node.children.append(self._visit_node(arg))
-            ir_node.children.append(args_node)
+                ir_node.children.append(self._visit_node(arg))
             
             return ir_node
-            
-        elif isinstance(node, ast.Name):
-            return IRNode("Name", node.lineno, node.col_offset,
-                         attributes={"id": node.id})
         
         elif isinstance(node, ast.Attribute):
-            ir_node = IRNode("Attribute", node.lineno, node.col_offset)
-            ir_node.children.append(self._visit_node(node.value))
-            ir_node.attributes["attr"] = node.attr
+            ir_node = IRNode("Attribute", node.lineno, node.col_offset,
+                           attributes={"attr": node.attr})
+            if hasattr(node, 'value'):
+                ir_node.children.append(self._visit_node(node.value))
             return ir_node
         
-        # Default case for unhandled nodes
-        return IRNode(type(node).__name__, 
-                     getattr(node, 'lineno', 0),
-                     getattr(node, 'col_offset', 0))
+        elif isinstance(node, ast.Import):
+            ir_node = IRNode("Import", node.lineno, node.col_offset)
+            for alias in node.names:
+                import_node = IRNode("ImportName", node.lineno, node.col_offset,
+                                   attributes={"name": alias.name, 
+                                             "asname": alias.asname})
+                ir_node.children.append(import_node)
+            return ir_node
+        
+        elif isinstance(node, ast.ImportFrom):
+            ir_node = IRNode("ImportFrom", node.lineno, node.col_offset,
+                           attributes={"module": node.module})
+            for alias in node.names:
+                import_node = IRNode("ImportName", node.lineno, node.col_offset,
+                                   attributes={"name": alias.name,
+                                             "asname": alias.asname})
+                ir_node.children.append(import_node)
+            return ir_node
+        
+        elif isinstance(node, ast.Expr):
+            ir_node = IRNode("Expr", node.lineno, node.col_offset)
+            ir_node.children.append(self._visit_node(node.value))
+            return ir_node
+        
+        elif isinstance(node, ast.If):
+            ir_node = IRNode("If", node.lineno, node.col_offset)
+            # Test condition
+            test_node = IRNode("Test", node.lineno, node.col_offset)
+            test_node.children.append(self._visit_node(node.test))
+            ir_node.children.append(test_node)
+            
+            # Body
+            body_node = IRNode("Body", node.lineno, node.col_offset)
+            for child in node.body:
+                body_node.children.append(self._visit_node(child))
+            ir_node.children.append(body_node)
+            
+            # Orelse
+            if node.orelse:
+                orelse_node = IRNode("Orelse", node.lineno, node.col_offset)
+                for child in node.orelse:
+                    orelse_node.children.append(self._visit_node(child))
+                ir_node.children.append(orelse_node)
+            
+            return ir_node
+        
+        elif isinstance(node, ast.For):
+            ir_node = IRNode("For", node.lineno, node.col_offset)
+            # Target
+            ir_node.children.append(self._visit_node(node.target))
+            # Iter
+            ir_node.children.append(self._visit_node(node.iter))
+            # Body
+            body_node = IRNode("Body", node.lineno, node.col_offset)
+            for child in node.body:
+                body_node.children.append(self._visit_node(child))
+            ir_node.children.append(body_node)
+            return ir_node
+        
+        elif isinstance(node, ast.While):
+            ir_node = IRNode("While", node.lineno, node.col_offset)
+            # Test
+            ir_node.children.append(self._visit_node(node.test))
+            # Body
+            body_node = IRNode("Body", node.lineno, node.col_offset)
+            for child in node.body:
+                body_node.children.append(self._visit_node(child))
+            ir_node.children.append(body_node)
+            return ir_node
+        
+        elif isinstance(node, ast.Return):
+            ir_node = IRNode("Return", node.lineno, node.col_offset)
+            if node.value:
+                ir_node.children.append(self._visit_node(node.value))
+            return ir_node
+        
+        else:
+            # Generic fallback for unhandled node types
+            ir_node = IRNode(node.__class__.__name__, 
+                           getattr(node, 'lineno', 0),
+                           getattr(node, 'col_offset', 0))
+            return ir_node
     
     def perform_constant_propagation(self):
-        """Perform constant propagation analysis"""
-        console.print("[cyan]Performing constant propagation analysis...[/cyan]")
+        """
+        Perform constant propagation analysis
+        Track constant values through the program flow
+        """
+        if not self.ir_root:
+            return
         
-        # This is a simplified implementation
-        # In full implementation, would track constant values through assignments
+        # Walk through IR and track constant assignments
+        self._propagate_constants(self.ir_root)
+    
+    def _propagate_constants(self, node: IRNode):
+        """Recursively propagate constants through IR"""
+        if node.node_type == "Assign":
+            # Check if we're assigning a constant
+            for child in node.children:
+                if child.node_type == "Variable":
+                    var_name = child.attributes.get("name")
+                    # Find the constant value
+                    for value_child in node.children:
+                        if value_child.node_type == "Constant":
+                            const_value = value_child.attributes.get("value")
+                            self.constants[var_name] = const_value
         
-        constants = self.symbol_table.get_symbols_by_type("variable")
-        for symbol in constants:
-            # Check if variable might contain hardcoded values
-            if any(keyword in symbol.name.lower() for keyword in 
-                  ['password', 'secret', 'key', 'token']):
-                console.print(f"[yellow]  Potential secret variable: {symbol.name} in {symbol.scope}[/yellow]")
+        # Recursively process children
+        for child in node.children:
+            self._propagate_constants(child)
     
     def analyze_crypto_patterns(self):
-        """Analyze cryptographic patterns in the code"""
-        console.print("[cyan]Analyzing cryptographic patterns...[/cyan]")
+        """
+        Analyze cryptographic algorithm usage
+        Detect weak or outdated algorithms
+        """
+        if not self.ir_root:
+            return
         
-        # Look for weak crypto algorithms
-        weak_crypto_patterns = ['md5', 'sha1', 'des', 'rc4', 'base64']
+        weak_algorithms = ['md5', 'sha1', 'des', 'rc4', 'md4']
         
-        # Search in symbol table
-        for symbol in self.symbol_table.get_all_symbols():
-            for pattern in weak_crypto_patterns:
-                if pattern in symbol.name.lower():
-                    console.print(f"[red]  Warning: Found weak crypto reference: {symbol.name}[/red]")
+        self._check_crypto_calls(self.ir_root, weak_algorithms)
+    
+    def _check_crypto_calls(self, node: IRNode, weak_algorithms: List[str]):
+        """Check for weak crypto function calls"""
+        if node.node_type == "Call":
+            func_name = node.attributes.get("func_name", "")
+            func_name_lower = func_name.lower()
+            
+            for weak in weak_algorithms:
+                if weak in func_name_lower:
+                    self.crypto_findings.append({
+                        'line': node.line_no,
+                        'function': func_name,
+                        'algorithm': weak,
+                        'severity': 'HIGH',
+                        'message': f'Weak cryptographic algorithm detected: {weak}'
+                    })
+        
+        # Check imports
+        if node.node_type == "ImportFrom":
+            module = node.attributes.get("module", "")
+            if module in ["hashlib", "Crypto", "cryptography"]:
+                for child in node.children:
+                    if child.node_type == "ImportName":
+                        name = child.attributes.get("name", "").lower()
+                        for weak in weak_algorithms:
+                            if weak in name:
+                                self.crypto_findings.append({
+                                    'line': node.line_no,
+                                    'function': name,
+                                    'algorithm': weak,
+                                    'severity': 'HIGH',
+                                    'message': f'Weak cryptographic algorithm imported: {weak}'
+                                })
+        
+        # Recursively check children
+        for child in node.children:
+            self._check_crypto_calls(child, weak_algorithms)
     
     def analyze_random_generation(self):
-        """Analyze random number generation patterns"""
-        console.print("[cyan]Analyzing random number generation...[/cyan]")
+        """
+        Analyze random number generation
+        Detect insecure random number generators
+        """
+        if not self.ir_root:
+            return
         
-        weak_rng_patterns = ['random', 'randint', 'Math.random', 'rand()']
-        secure_rng_patterns = ['secrets.', 'Crypto.Random', 'os.urandom']
+        insecure_random_funcs = [
+            'random.random',
+            'random.randint',
+            'random.choice',
+            'random.randrange',
+            'math.random'
+        ]
         
-        # This would be integrated with AST analysis in real implementation
-        console.print("[yellow]  RNG analysis requires deeper AST traversal (implemented in detectors)[/yellow]")
+        self._check_random_calls(self.ir_root, insecure_random_funcs)
     
-    def print_ir_tree(self, node: Optional[IRNode] = None, indent: int = 0):
-        """Print IR tree structure for debugging"""
+    def _check_random_calls(self, node: IRNode, insecure_funcs: List[str]):
+        """Check for insecure random function calls"""
+        if node.node_type == "Call":
+            func_name = node.attributes.get("func_name", "")
+            
+            for insecure in insecure_funcs:
+                if insecure in func_name:
+                    self.random_findings.append({
+                        'line': node.line_no,
+                        'function': func_name,
+                        'severity': 'MEDIUM',
+                        'message': f'Insecure random number generator: {func_name}. Use secrets module instead.'
+                    })
+        
+        # Recursively check children
+        for child in node.children:
+            self._check_random_calls(child, insecure_funcs)
+    
+    def get_findings(self) -> Dict[str, List[Dict]]:
+        """Get all security findings from analysis"""
+        return {
+            'crypto': self.crypto_findings,
+            'random': self.random_findings,
+            'constants': self.constants
+        }
+    
+    def print_ir(self, node: Optional[IRNode] = None, indent: int = 0):
+        """Print IR tree for debugging"""
         if node is None:
             node = self.ir_root
-            
+        
         if node is None:
+            console.print("[dim]No IR to display[/dim]")
             return
-            
-        indent_str = "  " * indent
-        attrs = " ".join(f"{k}={v}" for k, v in node.attributes.items())
-        console.print(f"{indent_str}{node.node_type} ({node.line_no}:{node.col_offset}) {attrs}")
+        
+        prefix = "  " * indent
+        attrs_str = ", ".join(f"{k}={v}" for k, v in node.attributes.items())
+        console.print(f"{prefix}[cyan]{node.node_type}[/cyan] ({node.line_no}:{node.col_offset}) {attrs_str}")
         
         for child in node.children:
-            self.print_ir_tree(child, indent + 1)
-
-def analyze_source_file(file_path: str):
-    """Analyze a source file using IR analysis"""
-    try:
-        with open(file_path, 'r') as f:
-            source_code = f.read()
-        
-        console.print(f"\n[bold]IR Analysis of: {file_path}[/bold]")
-        
-        # Parse to AST
-        tree = ast.parse(source_code)
-        
-        # Build IR and analyze
-        analyzer = IRAnalyzer()
-        ir_root = analyzer.build_ir_from_ast(tree)
-        
-        # Perform analyses
-        analyzer.perform_constant_propagation()
-        analyzer.analyze_crypto_patterns()
-        analyzer.analyze_random_generation()
-        
-        # Print symbol table
-        console.print("\n[bold]Symbol Table:[/bold]")
-        analyzer.symbol_table.print_table()
-        
-        # Optionally print IR tree (verbose)
-        # console.print("\n[bold]IR Tree:[/bold]")
-        # analyzer.print_ir_tree()
-        
-    except SyntaxError as e:
-        console.print(f"[red]Syntax error: {e}[/red]")
-    except Exception as e:
-        console.print(f"[red]Error analyzing file: {e}[/red]")
-
-if __name__ == "__main__":
-    import sys
-    if len(sys.argv) > 1:
-        analyze_source_file(sys.argv[1])
-    else:
-        console.print("Usage: python ir_analyzer.py <file_to_analyze>")
+            self.print_ir(child, indent + 1)
+    
+    def analyze_all(self):
+        """Perform all available analyses"""
+        self.perform_constant_propagation()
+        self.analyze_crypto_patterns()
+        self.analyze_random_generation()
+        return self.get_findings()

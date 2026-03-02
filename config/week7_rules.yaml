@@ -1,0 +1,40 @@
+week7_rules:
+  regex_rules:
+    - id: "W7-RX-API-001"
+      severity: "CRITICAL"
+      message: "Hardcoded API/Secret key detected"
+      ignore_case: true
+      pattern: "(api[_-]?key|secret[_-]?key|access[_-]?key)\\s*=\\s*['\"][^'\"]{10,}['\"]"
+
+    - id: "W7-RX-AWS-001"
+      severity: "CRITICAL"
+      message: "Possible AWS Access Key ID detected"
+      ignore_case: true
+      pattern: "AKIA[0-9A-Z]{16}"
+
+    - id: "W7-RX-JWT-001"
+      severity: "HIGH"
+      message: "Possible JWT token detected"
+      ignore_case: false
+      pattern: "[A-Za-z0-9_-]{10,}\\.[A-Za-z0-9_-]{10,}\\.[A-Za-z0-9_-]{10,}"
+
+  entropy_rules:
+    enabled: true
+    id: "W7-ENT-001"
+    severity: "HIGH"
+    min_length: 20
+    threshold: 4.0
+
+  identifier_rules:
+    enabled: true
+    id: "W7-ID-001"
+    severity: "MEDIUM"
+    keywords:
+      - password
+      - secret
+      - token
+      - api_key
+      - access_key
+      - private_key
+      - credential
+      - aws

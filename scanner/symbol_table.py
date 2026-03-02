@@ -94,6 +94,7 @@ class SymbolTable:
         table.add_column("Scope", style="yellow")
         table.add_column("Line", justify="right")
         table.add_column("Data Type", style="dim")
+        table.add_column("Value", style="dim")
         
         for symbol in sorted(self.symbols, key=lambda s: (s.scope, s.name)):
             table.add_row(
@@ -101,20 +102,31 @@ class SymbolTable:
                 symbol.symbol_type,
                 symbol.scope,
                 str(symbol.line_no),
-                symbol.data_type or "N/A"
+                symbol.data_type or "-",
+                (symbol.value[:30] + "..." if symbol.value and len(symbol.value) > 30 else symbol.value or "-")
             )
         
         console.print(table)
-
-# Example usage
-if __name__ == "__main__":
-    # Create symbol table
-    symtab = SymbolTable()
     
-    # Add some symbols
-    symtab.add_symbol(Symbol("API_KEY", "variable", 10, "global", value="'sk_test_123'"))
-    symtab.add_symbol(Symbol("connect_db", "function", 25, "global"))
-    symtab.add_symbol(Symbol("password", "parameter", 26, "connect_db"))
+    def get_statistics(self) -> Dict[str, int]:
+        """Get statistics about symbols"""
+        stats = {
+            'total': len(self.symbols),
+            'variables': len([s for s in self.symbols if s.symbol_type == 'variable']),
+            'functions': len([s for s in self.symbols if s.symbol_type == 'function']),
+            'parameters': len([s for s in self.symbols if s.symbol_type == 'parameter']),
+            'constants': len([s for s in self.symbols if s.symbol_type == 'constant']),
+            'scopes': len(set(s.scope for s in self.symbols))
+        }
+        return stats
     
-    # Print table
-    symtab.print_table()
+    def print_statistics(self):
+        """Print symbol table statistics"""
+        stats = self.get_statistics()
+        console.print("\n[bold]Symbol Table Statistics:[/bold]")
+        console.print(f"  Total Symbols: {stats['total']}")
+        console.print(f"  Variables: {stats['variables']}")
+        console.print(f"  Functions: {stats['functions']}")
+        console.print(f"  Parameters: {stats['parameters']}")
+        console.print(f"  Constants: {stats['constants']}")
+        console.print(f"  Scopes: {stats['scopes']}")

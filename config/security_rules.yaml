@@ -1,31 +1,154 @@
+# Security Scanner Rules Configuration
+# Version: 1.0
+
 security_rules:
+  # Hardcoded Secrets Detection
   hardcoded_secrets:
+    enabled: true
+    severity: CRITICAL
+    description: "Detect hardcoded passwords, API keys, and credentials"
     patterns:
-      - "password\\s*=\\s*['\"].{4,}['\"]"
-      - "api_key\\s*=\\s*['\"].{10,}['\"]"
-      - "secret\\s*=\\s*['\"].{8,}['\"]"
-      - "token\\s*=\\s*['\"].{10,}['\"]"
-      - "aws_access_key_id"
-      - "aws_secret_access_key"
-    
+      - password
+      - passwd
+      - pwd
+      - api_key
+      - api-key
+      - apikey
+      - secret_key
+      - secret-key
+      - secretkey
+      - access_key
+      - access-key
+      - accesskey
+      - private_key
+      - private-key
+      - auth_token
+      - auth-token
+      - bearer
+      - aws_access_key_id
+      - aws_secret_access_key
+      - database_password
+      - db_password
+      - db_pass
+    exclusions:
+      - test
+      - example
+      - sample
+      - demo
+      - placeholder
+    min_length: 6  # Minimum length to consider as real secret
+  
+  # AWS Credentials
+  aws_credentials:
+    enabled: true
+    severity: CRITICAL
+    description: "Detect AWS access keys and secrets"
+    patterns:
+      - "AKIA[0-9A-Z]{16}"  # AWS Access Key ID pattern
+      - aws_access_key
+      - aws_secret
+      - aws_session_token
+  
+  # Weak Cryptography
   weak_crypto:
-    weak_algorithms:
-      - "md5"
-      - "sha1"
-      - "des"
-      - "rc4"
-    min_key_lengths:
-      rsa: 2048
-      aes: 128
-      ecdsa: 256
-    
+    enabled: true
+    severity: HIGH
+    description: "Detect weak or deprecated cryptographic algorithms"
+    algorithms:
+      - md5
+      - md4
+      - sha1
+      - des
+      - 3des
+      - rc4
+      - rc2
+    recommended:
+      - sha256
+      - sha384
+      - sha512
+      - aes
+      - chacha20
+  
+  # Insecure Random Number Generation
   insecure_random:
-    weak_rngs:
-      - "random.random"
-      - "Math.random"
-      - "rand()"
-      - "random.randint"
-    required_rngs:
-      - "secrets.token_bytes"
-      - "secrets.randbelow"
-      - "Crypto.Random.get_random_bytes"
+    enabled: true
+    severity: MEDIUM
+    description: "Detect insecure random number generators"
+    functions:
+      - random.random
+      - random.randint
+      - random.choice
+      - random.randrange
+      - random.shuffle
+      - math.random
+    recommended:
+      - secrets.token_bytes
+      - secrets.token_hex
+      - secrets.token_urlsafe
+      - secrets.choice
+      - os.urandom
+  
+  # SQL Injection Patterns
+  sql_injection:
+    enabled: true
+    severity: HIGH
+    description: "Detect potential SQL injection vulnerabilities"
+    patterns:
+      - "execute.*%s"
+      - "execute.*format"
+      - "execute.*\\+"
+      - "cursor.execute.*f\""
+  
+  # Command Injection
+  command_injection:
+    enabled: true
+    severity: HIGH
+    description: "Detect potential command injection"
+    functions:
+      - os.system
+      - subprocess.call
+      - subprocess.Popen
+      - eval
+      - exec
+    whitelist_contexts:
+      - test
+      - debug
+  
+  # Insecure SSL/TLS
+  insecure_ssl:
+    enabled: true
+    severity: HIGH
+    description: "Detect insecure SSL/TLS configurations"
+    patterns:
+      - verify=False
+      - ssl._create_unverified_context
+      - CERT_NONE
+
+# Scanning Options
+scan_options:
+  exclude_paths:
+    - "**/test_*"
+    - "**/tests/**"
+    - "**/__pycache__/**"
+    - "**/venv/**"
+    - "**/node_modules/**"
+    - "**/.git/**"
+  
+  exclude_files:
+    - "*.pyc"
+    - "*.pyo"
+    - "*.so"
+    - "*.dll"
+  
+  max_file_size: 1048576  # 1MB
+  
+  follow_imports: true
+  scan_comments: false
+
+# Reporting Options
+reporting:
+  format: console  # console, json, html
+  show_code_snippet: true
+  snippet_context_lines: 2
+  color_output: true
+  verbose: false
