@@ -1,3 +1,2 @@
-detectors
 scanner
 utils

@@ -5,17 +5,17 @@ import re
 import sys
 import traceback
 
-# ==================== OPTIONAL WEEK 6 IMPORTS ====================
+# OPTIONAL WEEK 6 IMPORTS 
 try:
     from scanner.ir_analyzer import IRAnalyzer
     HAS_IR_ANALYSIS = True
 except Exception as e:
     HAS_IR_ANALYSIS = False
-    print(f"⚠️  IR analyzer not available: {e}")
-    print("⚠️  Using regex-only mode")
+    print(f" IR analyzer not available: {e}")
+    print("  Using regex-only mode")
 
 
-# ==================== GLOBALS / ORIGINALS ====================
+# GLOBALS / ORIGINALS 
 _ORIGINAL_COMPILE = builtins.compile
 _ORIGINAL_EXEC = builtins.exec
 _ORIGINAL_EVAL = builtins.eval
@@ -25,13 +25,13 @@ _ORIGINAL_IMPORT = builtins.__import__
 _IN_SCAN = False
 
 
-# ==================== EXCEPTION ====================
+# EXCEPTION
 class SecurityViolation(Exception):
     """Raised when CRITICAL security violations are detected."""
     pass
 
 
-# ==================== SCANNING CORE ====================
+# SCANNING CORE 
 def scan_for_secrets(source, filename="<string>"):
     """
     Main scanner: runs regex scanning always, and IR analysis if available.
@@ -50,7 +50,7 @@ def scan_for_secrets(source, filename="<string>"):
         try:
             issues.extend(_ir_analysis_scan(source, filename))
         except Exception as e:
-            print(f"⚠️  IR analysis warning: {e}")
+            print(f"  IR analysis warning: {e}")
 
     # Deduplicate findings (same line + rule + code)
     deduped = []
@@ -71,6 +71,9 @@ def _regex_scan(source: str):
     """
     issues = []
     lines = source.split("\n")
+
+    # Realistic AWS Access Key ID match (reduces false positives)
+    aws_access_key_id_re = re.compile(r"\b(AKIA|ASIA|A3T)[0-9A-Z]{16}\b")
 
     for i, line in enumerate(lines, 1):
         line_lower = line.lower().strip()
@@ -104,16 +107,15 @@ def _regex_scan(source: str):
                         "code": line.strip()[:120],
                     })
 
-        # HS003: AWS credential (broad heuristic)
-        if "aws_" in line_lower or "akia" in line_lower:
-            if "=" in line:
-                issues.append({
-                    "line": i,
-                    "rule": "HS003",
-                    "severity": "CRITICAL",
-                    "message": "Possible AWS credential",
-                    "code": line.strip()[:120],
-                })
+        # HS003: AWS Access Key ID (fix: avoid flagging any aws_* variable name)
+        if aws_access_key_id_re.search(line):
+            issues.append({
+                "line": i,
+                "rule": "HS003",
+                "severity": "CRITICAL",
+                "message": "Possible AWS Access Key ID hardcoded",
+                "code": line.strip()[:120],
+            })
 
         # WC001: weak crypto
         if "md5(" in line_lower or "sha1(" in line_lower:
@@ -154,13 +156,11 @@ def _ir_analysis_scan(source: str, filename: str):
 
     analyzer.build_ir_from_ast(tree)
 
-    # If these methods exist in your IRAnalyzer, call them safely
     for meth in ("perform_constant_propagation", "analyze_crypto_patterns", "analyze_random_generation"):
         fn = getattr(analyzer, meth, None)
         if callable(fn):
             fn()
 
-    # Symbol-table checks (safe against None)
     symtab = getattr(analyzer, "symbol_table", None)
     if symtab and hasattr(symtab, "get_all_symbols"):
         issues.extend(_check_symbol_table(symtab))
@@ -194,7 +194,7 @@ def _check_symbol_table(symbol_table):
     return issues
 
 
-# ==================== REPORTING ====================
+# REPORTING 
 def _print_report(issues, label):
     print("\n" + "=" * 70)
     print(f"🔎 SECURITY SCAN: {label}")
@@ -234,7 +234,7 @@ def _should_block(issues):
     return any(x.get("severity") == "CRITICAL" for x in issues)
 
 
-# ==================== HOOKED FUNCTIONS ====================
+# HOOKED FUNCTIONS
 def secure_compile(source, filename, mode, flags=0, dont_inherit=False, optimize=-1, **kwargs):
     global _IN_SCAN
     if _IN_SCAN:
@@ -290,7 +290,6 @@ def secure_eval(source, globals=None, locals=None):
 
 
 def secure_import(name, globals=None, locals=None, fromlist=(), level=0):
-    # Imports can be noisy; we just perform normal import here.
     return _ORIGINAL_IMPORT(name, globals, locals, fromlist, level)
 
 
@@ -301,7 +300,6 @@ def install_hooks():
     builtins.__import__ = secure_import
 
 
-# Install immediately on import (your existing behavior)
 install_hooks()
 
 if __name__ == "__main__":
